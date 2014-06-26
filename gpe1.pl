@@ -4,7 +4,7 @@
 #
 # (c) 2013, 2014 MULTIDATA Praha spol. s r.o.
 #
-# cash-gpe1.pl 20140625 aleph - gpe interface (dev)
+# gpe1.pl 20140625 aleph - gpe interface (dev)
 #
 ###########################################################
 
