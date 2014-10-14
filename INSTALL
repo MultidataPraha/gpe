@@ -1,0 +1,206 @@
+Úvod
+Propojení s platebním systémem umožňuje uživatelům knihovny platit v knihovním systému bezhotovostně své dlužné transakce (upomínky, zpozdné, poplatky za knihovní služby apod.). 
+
+Bezhotovostní platba je realizována uživatelem ve čtenářském katalogu ALEPHu po přihlášení čtenáře prostřednictvím platební brány Global Payments.
+
+Knihovní systém při realizované bezhotovostní platbě nerozlišuje mezi jednotlivými transakcemi a do platebního systému odesílá pouze celkovou částku.
+
+Při platbě je uživatel přesměrován na platební bránu, po zadání údajů o platební kartě je s výsledkem transakce přesměrován zpět do Alephu – citlivé údaje o platební kartě tedy vidí jen platební brána Global Payments, knihovna má pouze informaci o tom, zda platba úspěsně proběhla.
+
+ 
+Postup při úhradě prostřednictvím platební brány
+Tuto operaci může provést sám čtenář po přihlášení do čtenářského katalogu bez nutného zásahu knihovníka:
+
+1.	čtenář se přihlásí do knihovního katalogu
+2.	zobrazí si přehled dlužných poplatků
+3.	použije tlačítko „Zaplatit vše“, kterým jsou zaplaceny všechny jeho dlužné poplatky
+4.	uživatel je přesměrován do prostřední externí platební brány, kde potvrdí a realizuje vlastní platbu
+5.	po provedení platby je uživatel přesměrován zpět do knihovního katalogu, přehledy dlužných transakcí jsou prázdné
+
+Možná je i varianta volání vykonávacího skriptu z jiného systému.
+
+Scénář 1: zvolit čtenáře s dlužným poplatkem, provést platbu tak, kdy je proces přes externí platební bránu úspěšně dokončen. Dlužné platební transakce jsou v knihovním systému označeny jako zaplacené a čtenář již nemá registrovány žádné dlužné transakce.
+
+Scénář 2: zvolit čtenáře s dlužným poplatkem, který nemá na kontě dostatečný zůstatek na uhrazení dlužných transakcí. Platební brána odmítne uhrazení, dlužné platební transakce nejsou v knihovním systému označeny jako zaplacené a čtenář má i nadále registrovány dlužné transakce. (jinak řečeno – nastavit čtenáři hodně moc vysoký dluh, protože s disponibilní částkou u testovací karty hýbat neumíme)
+
+Scénář 3: zvolit čtenáře s dlužným poplatkem, který v prostředí platební brány pouze zobrazí formulář k zaplacení, ale ponechá jej nevyplněný až do uplynutí timeoutu. Poté provede pokus o zaplacení, na základě kterého dojde k přesměrování na stránku o tom, že zaplacení neproběhlo.
+
+Scénář 4: nastavit parametr gpe_response_url na chybné URL. Zvolit čtenáře s dlužným poplatkem a provést platbu. Díky chybnému URL nedostane Aleph zprávu o výsledku transakce platební brány a v Alephu zůstanou transakce jako nezaplacené. Tento rozdílný stav mezi Alephem a platební branou bude zaznamenán jako chyba do logového souboru a odeslán e-mailem správci k ověření.
+ 
+Informace pro systémového knihovníka: instalace a aktivace rozhraní
+Předpoklad: pro správný chod externího rozhraní a komunikace s platebním systémem a platební bránou musí na straně ALEPH serveru běžet httpd server a www aplikační server (standardní součásti systému ALEPH), tj. čtenářský katalog systému ALEPH.
+
+Rozhraní podporuje prostředí více ADM bází.
+
+Logy externího rozhraní jsou přítomny v běžném adresáři $LOGDIR na ALEPH serveru, oba skripty externího rozhraní logují do samostatných stejnojmenných souborů, kam jsou zaznamenávány i chyby, které vzniknou při zpracování.
+
+Do samostatného logového souboru jsou zaznamenávány chybové stavy, které jsou pravidelně zjišťovány porovnáváním stavu objednávek v Alephu a na straně platební brány. Podrobněji viz kapitola Kontrola stavu objednávek.
+
+Základní kroky potřebné k aktivaci rozhraní:
+
+1.	instalace perl modulu Crypt::OpenSSL::RSA
+2.	umístění skriptů a konfiguračních souborů na server s ALEPHem
+3.	přidání odkazu do html šablony čtenářského katalogu
+4.	přidání jedinečného čítače pro čísla platebních transakcí (ORDERNUMBER)
+5.	nastavení rozhraní pro komunikaci s platební bránou
+
+1. Instalace perl modulu Crypt::OpenSSL::RSA
+
+Instalaci perl modulu Crypt::OpenSSL::RSA proveďte následujícím příkazem po přihlášení se na Aleph server jako uživatel aleph:
+
+perl -MCPAN -eshell
+cpan[1]> install Crypt::OpenSSL::RSA
+...
+cpan[2]> quit
+
+Případné dotazy při prvním spuštění CPAN potvrďte defaultními volbami ([yes]).
+
+Protože Aleph přichází s 32-bitovým perlem, zatímco operační systém je vybaven 64-bitovým a defaultní kompilace probíhá 64-bitově, dochází u standardní instalace k neúspěšné kompilaci perlového modulu (v logu je uvedena chyba ELFCLASS64 / ELFCLASS32).
+
+Doporučujeme vyřešit vytvořením níže uvedeného pomocného skriptu gcc, který bude v cestě umístěn před systémovým gcc.
+
+#!/bin/bash 
+exec /usr/bin/gcc -m32 $*
+
+2. Umístění skriptů a konfiguračních souborů
+
+Samotné externí rozhraní je na ALEPH serveru přítomno v adresáři skriptů webového serveru definovaném v httpd.conf direktivou ScriptAlias, obvykle $httpd_root/cgi-bin:
+
+•	cash-gpe1.pl (iniciace platby a komunikace s platební bránou)
+•	cash-gpe2.pl (zpracování odpovědi platební brány)
+
+Konfigurační soubory jsou umístěny v $alephe_tab/cash-gpe1.cfg a $alephe_tab/cash-gpe2.cfg. Jejich pojmenování, stejně jako pojmenování logových souborů vychází ze základního jména vykonávacího skriptu. Tj. pojmenování skriptu cash-gpe1.pl předepisuje jméno konfiguračního souboru cash-gpe1.cfg a jméno logového souboru cash-gpe1.log. Jméno vykonávacího skriptu lze zvolit libovolně a lze je přejmenovat.
+
+Ve skriptech je třeba správně nastavit cestu k perlu podle verze Alephu (např. a20_1, a21_1, a22_1), defaultní nastavení je ve skriptech pro v22. Cesta k perlu je uvedena na prvním řádku každého skriptu, např. pro verzi 22:
+#!/exlibris/aleph/a22_1/product/bin/perl
+
+3. Přidání odkazu do html šablony čtenářského katalogu
+
+Pro nabídnutí funkce Zaplatit vše čtenáři je třeba přidat odkaz na skript cash-gpe1.pl do html šablony www_f_lng/bor-cash-head.
+
+4. Přidání jedinečného čítače pro čísla platebních transakcí (ORDERNUMBER)
+
+Pro jedinečnou identifikaci placených transakcí externí platební branou je třeba na straně ALEPH serveru v $usr_library bázi založit příslušnou samostatný uživatelský ALEPH čítač last-gpe-order-no (bez prefixu, s potlačením nul). 
+
+Čítač (sekvence) last-gpe-order-no se zakládá na serveru po připojení k $usr_library bázi pomocí util G-2, NEW.
+
+5. Nastavení rozhraní pro komunikaci s platební bránou
+
+Externí rozhraní vyžaduje pro komunikaci s platební bránou Global Payments správně nastavený konfigurační soubor, který definuje řadu parametrů, včetně např. názvů souborů s bezpečnostními klíči nebo umístění pomocných skriptů a serveru s platební bránou.
+
+# soukromy klic obchodnika pro podepisovani odchozich pozadavku
+# v dokumentaci GPE jako MERCHpri
+gpe_private_key = cash_my_private_key.pem
+# verejny klic GPE pro overeni podpisu odpovedi
+# v dokumentaci GPE jako GPEpub
+gpe_public_key = cash_gpe_public_key.pem
+# MERCHANTNUMBER podle smlouvy s GPE
+MERCHANTNUMBER = 0123456789
+
+# url brany GPE
+gpe_url           = https://test.3dsecure.gpwebpay.com/kb/order.do
+# url skriptu pro zpracovani odpovedi GPE
+gpe_response_url  = https://aleph.xxx.cz/cgi-bin/cash-gpe2.pl
+
+# hodnota pro zpusob platby
+Z31_PAYMENT_MODE = 55
+
+# pokud ma byt rozhrani volano ze ctenarskeho katalogu Alephu
+aleph_opac = 1
+
+# verejny klic pro overeni podpisu pozadavku u volani mimo Aleph
+api_public_key = cash_api_public_key.pem
+# zamezeni kontroly RSA podpisu u volani mimo Aleph
+api_ignore_digest = 0
+# mozna odchylka parametru TIME od casu na serveru
+api_max_time_diff = 300
+
+# url informacni stranky pro uzivatele
+# platba provedena - opac_ok_url
+opac_ok_url       = /F/?func=file&file_name=gpe_ok
+# platba zamitnuta - opac_nok_url
+opac_nok_url      = /F/?func=file&file_name=gpe_nok
+# chyba pri zpracovani platby - opac_err_url
+opac_err_url      = /F/?func=file&file_name=gpe_err
+
+Privátní klíč obchodníka (MERCHpri) a veřejný klíč platební brány (GPEpub) je potřeba je uložit ve formátu PEM do $alephe_tab a jejich názvy nastavit do konfiguračního souboru (proměnné gpe_private_key pro privátní klíč obchodníka MERCHpri, gpe_public_key pro veřejný klíč brány GPEpub). 
+
+Přehled všech klíčů:
+
+•	GPEpub – soubor gpe_public_key, předán provozovatelem platební brány
+•	MERCHpri – soubor gpe_private_key
+•	MERCHpub – předán provozovateli platební brány
+
+Postup vygenerování páru klíčů obchodníka (MERCHpri, MERCHpub) je předepsán dokumentací GPE.
+
+Parametr aleph_opac určuje, jestli se má pro získání potřebných údajů (ID uživatele) použít Referer a id Aleph session (pro použití ve čtenářském katalogu Alephu, s nastavením aleph_opac = 1) nebo jestli se v rámci poslaného URL vyhodnocují předávané parametry (např. pro volání z VuFindu, s nastavením aleph_opac = 0). 
+
+V případě aleph_opac = 0 se z konfiguračního souboru kontroluje podpis takto poslaného URL s pomocí api_public_key, api_ignore_digest a api_max_time_diff. Parametr api_ignore_digest = 1 pak umožňuje vypnout kontrolu podepisování URL parametrem digest, měl by takto být nastaven pouze pro účely testování komunikace. V ostrém provozu mimo čtenářský katalog Alephu jednoznačně doporučujeme api_ignore_digest = 0.
+
+Dále je třeba ve stejném souboru konfigurovat systémové nastavení a adresáře podle instalované verze systému Aleph a nastavení proměnných pro komunikaci s db Oracle:
+
+# aleph_db    = aleph.xxx.cz.aleph21
+ORACLE_SID = aleph21
+ORACLE_HOME = /exlibris/app/oracle/product/11r2
+LOGDIR      = /exlibris/aleph/a21_1/log
+NLS_LANG    = American_America.UTF8
+usr_library = xxx00
+
+Pokud je db Oracle a aplikace Aleph přítomna na stejném serveru, lze v konfiguračním souboru místo proměnné aleph_db (vyžaduje spuštěný listener) použít proměnnou ORACLE_SID (nevyžaduje listener).
+
+Uvedené cesty v konfiguračním souboru je třeba upravit pro příslušnou verzi Alephu a instalované kopie (např. a20_1, a21_1, a22_1 apod.).
+
+V případě úspěšné platby v platebním systému je u uzavřených transakcí uchován identifikátor platby odeslaný platební bráně, generovaný ze sekvence last-gpe-order-no.
+ 
+Automatická kontrola stavu objednávek
+Do samostatného logového souboru v adresáři $LOGDIR jsou zaznamenávány chybové stavy, které jsou pravidelně zjišťovány porovnáváním stavu objednávek v Alephu a na straně platební brány. Tyto chybové stavy typicky vznikají přerušením a nedokončením zpracování objednávky, nebo kolizí během zpracování, např.:
+
+1)	čtenář nedokončí zaplacení objednávky
+2)	čtenář je po zaplacení přesměrován na httpd server Alephu, který neběží nebo je url uvedené v konfiguraci v proměnné gpe_response_url  nefunkční nebo chybné
+3)	čtenář během placení objednávky omylem uhradí dlužnou transakci i v hotovosti (nebo si odkaz do platební brány otevře ve více oknech a úmyslně provede úhradu vícekrát)
+
+Kontrolní skript (gpe-check.pl) se volá prostřednictvím job_list, doporučujeme v intervale 5 minut, aby byly včas zachyceny problémové případy, kdy je na straně platební brány evidována platba, proti které na straně Alephu nejsou uhrazené transakce.
+
+Kontrolní skript se volá s parametrem --adm (kód administrativní báze). Pro více ADM bází je třeba skript pouštět samostatně pro každou ADM bázi zvlášť.
+
+Konfigurace kontrolního skriptu (gpe-check.cfg) probíhá stejně jako konfigurace výkonných skriptů.
+
+Rozsah kontrolovaných transakcí je stanoven od posledního ORDERNUMBER z předešlého běhu kontroly do aktuálního ORDERNUMBER podle počitadla last-gpe-order-no.
+
+Stavy, které jsou vyhodnocovány (GPE state,ok,primaryReturnCode,secondaryReturnCode, Aleph Z31_STATUS):
+
+a)	0,0,15,1,NULL (ORDERNUMBER - Objekt nenalezen, není ani v z31)
+b)	7 nebo 8,1,0,0,C (DEPOSITED_BATCH_OPENED / Uhrazena nebo DEPOSITED_BATCH_CLOSED / Zpracována, v z31 Closed)
+Stavy (a) a (b) považujeme za korektní (shodný stav na obou stranách – rozpracováno nebo dokončeno). 
+c)	7 nebo 8,1,0,0,O (Uhrazena nebo Zpracována ale v z31 je Open)
+Stav (c) je kritický a chybný, platební brána provedla úhradu, ale informace se do Alephu nedostala.
+d)	1,1,0,0,O (REQUESTED / Neukončena - čeká se na vyplnění údajů o kartě, v z31 Open)
+e)	2,1,0,0,O (PENDING / Neukončena - čeká se na výsledek z 3D)
+f)	20,1,0,0,O (CANCELED / Zrušena - držitel karty přerušil zadávání údajů, volba "Zpět do e-shopu")
+g)	6,1,0,0,O (UNAPPROVED / Neautorizována)
+h)	13,1,0,0,O (DECLINED / Zamítnuta - 3D)
+Stavy (d), (e), (f), (g) a (h) jsou chybové stavy platební brány, které jsou uváděny pro úplnost, transakce sice nebyly ukončeny, ale lze je považovat za korektní chybové stavy. Stav platebních transakcí v Alephu může být místo O i NULL, pokud proběhl další pokus o platbu a do z31 se uložilo nové číslo objednávky nebo byla transakce uhrazena z GUI klienta a Z31_PAYMENT_IDENTIFIER se přepsal. Řádek z31 s původním číslem pak v takových případech nelze dohledat.
+
+Libovolný jiný stav, který není uveden výše, je považován za chybu.
+
+Z pohledu správce se domníváme, že je třeba aktivně řešit pouze případ (c), kde platba je u GPE Uhrazena nebo Zpracována ale v Alephu zůstala neuhrazená. Tyto případy jsou skriptem automaticky zasílány emailem na uvedenou kontaktní emailovou adresu.
+
+Poznámka: při opakovaném pokusu o úhradu je možné (při přepsání Z31_PAYMENT_IDENTIFIER) dohledat číslo původní objednávky v logu.
+ 
+Příklad volání vykonávacího skriptu z jiného systému
+Pokud je parametr aleph_opac v konfiguračním souboru nastaven na hodnotu 0, vyhodnocují se jednotlivé parametry zaslané v URL.
+
+Zaslané URL:
+curl -D- 'https://.../gpe1.pl?ID=ID1234&ADM=xxx51&AMOUNT=98765&TIME='`date +%s` 
+
+HTTP/1.1 302 Found 
+Date: Mon, 17 Mar 2014 19:56:20 GMT 
+Server: Apache 
+Location: https://test.3dsecure.gpwebpay.com/kb/order.do?MERCHANTNUMBER=0123456789&OPERATION=CREATE_ORDER&ORDERNUMBER=2011575&AMOUNT=98765&CURRENCY=203&DEPOSITFLAG=1&MERORDERNUM=2011575&URL=https%3A%2F%2Fxxx%2Fgpe2.pl&DESCRIPTION=DESCRIPTION%20...%20platba%20kartou%20v%20knihovnim%20systemu%20...%20je%20tento%20text%20nekde%20videt%3F%3F%3F%20...2011575&MD=MD%23ID1234%20%20%20%20%20%20%2398765%23XXX51%23192.168.1.111%232011575&DIGEST=inaKOE2oMrClYV69i0gi6gBFZd9%2BMRFYAUM%2FEfofJ6qROI07dBKtnNgvmlp67NogKrZaK6trOdLDRvp89Us9Q5YQLCSjkLrD8e%2FMMNbitsOFrBDQDxQkm2QXIUuOqDE2en%2FvHb2CpDf9ibKsIvtht61xzxIvp3VgvSeba1cGkfii0rEbccTm9ZADqwKSAH1kxjepbbxr%2BInv4dzrvqrMkLfxws6HRfWbEA%2FkpdY%2F8yvyfWmVhIdgjOWwmVDNw0lBZploLwc8hekDEE2xT65PeXQkU3%2B1eBoeV52cWhfzj0o3Ibo1WlF03INP%2BjkRrMXb7ojgJ0EGK0QsBIEnBogEtw%3D%3D 
+Pragma: no-cache 
+Expires: Fri, 01 Jan 2000 00:00:00 GMT 
+Cache-Control: no-cache, must-revalidate 
+Content-Length: 0 
+Content-Type: text/plain; charset=UTF-8 
+
+Odeslány jsou parametry ID, ADM, AMOUNT, TIME (a DIGEST se správným podpisem) a pokud jsou údaje v pořádku a odpovídají stavu databázi v Alephu, proběhne přesměrování na platební bránu.
