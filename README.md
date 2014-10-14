@@ -8,4 +8,4 @@ The development was requested by Moravian Land Library in Brno (http://www.mzk.c
 
 For more information, please contact Petr Zabicka (zabak@mzk.cz).
 
-The full documentation is available in Czech language only. 
+The full documentation is available in Czech language only (see INSTALL). 
