@@ -159,11 +159,27 @@ Do samostatného logového souboru v adresáři $LOGDIR jsou zaznamenávány chy
 2)	čtenář je po zaplacení přesměrován na httpd server Alephu, který neběží nebo je url uvedené v konfiguraci v proměnné gpe_response_url  nefunkční nebo chybné
 3)	čtenář během placení objednávky omylem uhradí dlužnou transakci i v hotovosti (nebo si odkaz do platební brány otevře ve více oknech a úmyslně provede úhradu vícekrát)
 
-Kontrolní skript (gpe-check.pl) se volá prostřednictvím job_list, doporučujeme v intervale 5 minut, aby byly včas zachyceny problémové případy, kdy je na straně platební brány evidována platba, proti které na straně Alephu nejsou uhrazené transakce.
+Kontrolní program (gpe-check.pl) se volá prostřednictvím skriptu (gpe-check.sh) z job_listu, doporučujeme v intervale 10 minut, aby byly včas zachyceny problémové případy, kdy je na straně platební brány evidována platba, proti které na straně Alephu nejsou uhrazené transakce.
 
-Kontrolní skript se volá s parametrem --adm (kód administrativní báze). Pro více ADM bází je třeba skript pouštět samostatně pro každou ADM bázi zvlášť.
+Ve skriptu (gpe-check.sh) lze nastavit email adresáta chybového upozornění.
 
-Konfigurace kontrolního skriptu (gpe-check.cfg) probíhá stejně jako konfigurace výkonných skriptů.
+Příklad nastavení v $alephe_tab/job_list:
+
+00 DV       N gpe-check            /exlibris/aleph/u20_1/gpe/gpe-check.sh
+01 DV       N gpe-check            /exlibris/aleph/u20_1/gpe/gpe-check.sh
+02 DV       N gpe-check            /exlibris/aleph/u20_1/gpe/gpe-check.sh
+03 DV       N gpe-check            /exlibris/aleph/u20_1/gpe/gpe-check.sh
+04 DV       N gpe-check            /exlibris/aleph/u20_1/gpe/gpe-check.sh
+05 DV       N gpe-check            /exlibris/aleph/u20_1/gpe/gpe-check.sh
+06 DV       N gpe-check            /exlibris/aleph/u20_1/gpe/gpe-check.sh
+
+Příklad nastavení v $alephe_tab/job_list.conf:
+
+DV    D 06:00 20:59 00:10
+
+Kontrolní program se volá s parametrem --adm (kód administrativní báze). Pro více ADM bází je třeba program pouštět samostatně pro každou ADM bázi zvlášť.
+
+Konfigurace kontrolního programu (gpe-check.cfg) probíhá stejně jako konfigurace výkonných programů pro komunikaci s platební bránou.
 
 Rozsah kontrolovaných transakcí je stanoven od posledního ORDERNUMBER z předešlého běhu kontroly do aktuálního ORDERNUMBER podle počitadla last-gpe-order-no.
 
